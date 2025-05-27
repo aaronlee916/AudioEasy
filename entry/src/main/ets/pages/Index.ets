@@ -1,20 +1,19 @@
+import DeviceSelection from './DeviceSelection';
+import Recording from './Recording';
+
 @Entry
 @Component
 struct Index {
   @State message: string = 'Hello World';
 
   build() {
-    Row() {
-      Column() {
-        Text(this.message)
-          .fontSize($r('app.float.page_text_font_size'))
-          .fontWeight(FontWeight.Bold)
-          .onClick(() => {
-            this.message = 'Welcome';
-          })
-      }
-      .width('100%')
+    Tabs({barPosition:BarPosition.End}){
+      TabContent() {
+        Recording()
+      }.tabBar("录音")
+      TabContent() {
+        DeviceSelection()
+      }.tabBar("设备管理")
     }
-    .height('100%')
   }
 }
