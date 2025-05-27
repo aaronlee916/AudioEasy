@@ -1,179 +1,207 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { abilityAccessCtrl, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
 
-let min = 0;
-let sec = 0;
-let sampling_rate: number;
-let audioInputDevice: audio.AudioDeviceDescriptor = (AppStorage.get('audioInputDevice') as audio.AudioDeviceDescriptor);
-let recordingTime = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-let isRecording = false;
-let total_sec = 0;
-let timer: number;
+const TAG: string = 'AudioCapturerDemo';
 
-const TAG = 'AudioCapturerDemo';
-
-class Options {
-  offset?: number;
-  length?: number;
+// Audio configuration types
+interface WriteOptions {
+  offset: number;
+  length: number;
 }
 
+// Audio capturer state
 let bufferSize: number = 0;
-let audioCapturer: audio.AudioCapturer | undefined = undefined;
-let audioStreamInfo: audio.AudioStreamInfo = {
+let audioCapturer: audio.AudioCapturer | null = null;
+const audioStreamInfo: audio.AudioStreamInfo = {
   samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_44100,
   channels: audio.AudioChannel.CHANNEL_2,
   sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
   encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
 };
-let audioCapturerInfo: audio.AudioCapturerInfo = {
+
+const audioCapturerInfo: audio.AudioCapturerInfo = {
   source: audio.SourceType.SOURCE_TYPE_MIC,
   capturerFlags: 0
 };
-let audioCapturerOptions: audio.AudioCapturerOptions = {
+
+const audioCapturerOptions: audio.AudioCapturerOptions = {
   streamInfo: audioStreamInfo,
   capturerInfo: audioCapturerInfo
 };
-let path = getContext().cacheDir;
-let filePath = path + '/recording.pcm'; // Changed to a more generic filename
-let file: fs.File | undefined = undefined;
 
-let readDataCallback = (buffer: ArrayBuffer) => {
-  if (!file) return;
+// File handling
+const context: Context = getContext() as Context;
+const path: string = context.cacheDir;
+const filePath: string = `${path}/recording.pcm`;
+let file: fs.File | null = null;
 
-  let options: Options = {
-    offset: bufferSize,
-    length: buffer.byteLength
-  };
-  fs.writeSync(file.fd, buffer, options);
-  bufferSize += buffer.byteLength;
-};
-
-function init() {
-  audio.createAudioCapturer(audioCapturerOptions, (err, capturer) => {
+// Initialize audio capturer with proper typing
+function initAudioCapturer(): void {
+  audio.createAudioCapturer(audioCapturerOptions, (err: BusinessError, capturer: audio.AudioCapturer) => {
     if (err) {
-      console.error(`Invoke createAudioCapturer failed, code is ${err.code}, message is ${err.message}`);
+      console.error(`AudioCapturer creation failed: ${err.code}, ${err.message}`);
       return;
     }
-    console.info(`${TAG}: create AudioCapturer success`);
+    console.info(`${TAG}: AudioCapturer created successfully`);
     audioCapturer = capturer;
-    if (audioCapturer !== undefined) {
-      audioCapturer.on('readData', readDataCallback);
+
+    if (audioCapturer) {
+      audioCapturer.on('readData', (buffer: ArrayBuffer) => {
+        if (!file) return;
+
+        const options: WriteOptions = {
+          offset: bufferSize,
+          length: buffer.byteLength
+        };
+
+        try {
+          fs.writeSync(file.fd, buffer, options);
+          bufferSize += buffer.byteLength;
+        } catch (writeErr) {
+          console.error(`Write failed: ${(writeErr as Error).message}`);
+        }
+      });
     }
   });
 }
 
-function start() {
-  if (audioCapturer !== undefined) {
-    let stateGroup = [audio.AudioState.STATE_PREPARED, audio.AudioState.STATE_PAUSED, audio.AudioState.STATE_STOPPED];
-    if (stateGroup.indexOf(audioCapturer.state.valueOf()) === -1) {
-      console.error(`${TAG}: start failed`);
-      return;
-    }
+// Start recording with state checks
+function startRecording(): void {
+  if (!audioCapturer) {
+    console.error('AudioCapturer not initialized');
+    return;
+  }
 
-    // Open file when starting recording
+  const validStates: audio.AudioState[] = [
+    audio.AudioState.STATE_PREPARED,
+    audio.AudioState.STATE_PAUSED,
+    audio.AudioState.STATE_STOPPED
+  ];
+
+  if (!validStates.includes(audioCapturer.state.valueOf())) {
+    console.error(`${TAG}: Cannot start in current state`);
+    return;
+  }
+
+  try {
     file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-    bufferSize = 0; // Reset buffer size for new recording
+    bufferSize = 0;
 
     audioCapturer.start((err: BusinessError) => {
       if (err) {
-        console.error('Capturer start failed.');
+        console.error(`Recording start failed: ${err.code}`);
       } else {
-        console.info('Capturer start success.');
+        console.info('Recording started successfully');
       }
     });
+  } catch (openErr) {
+    console.error(`File open failed: ${(openErr as Error).message}`);
   }
 }
 
-function stop() {
-  if (audioCapturer !== undefined) {
-    if (audioCapturer.state.valueOf() !== audio.AudioState.STATE_RUNNING &&
-      audioCapturer.state.valueOf() !== audio.AudioState.STATE_PAUSED) {
-      console.info('Capturer is not running or paused');
-      return;
-    }
+// Stop recording with proper cleanup
+function stopRecording(): void {
+  if (!audioCapturer) {
+    console.error('AudioCapturer not initialized');
+    return;
+  }
 
-    audioCapturer.stop((err: BusinessError) => {
-      if (err) {
-        console.error('Capturer stop failed.');
-      } else {
+  const validStopStates: audio.AudioState[] = [
+    audio.AudioState.STATE_RUNNING,
+    audio.AudioState.STATE_PAUSED
+  ];
+
+  if (!validStopStates.includes(audioCapturer.state.valueOf())) {
+    console.info('Not in a stoppable state');
+    return;
+  }
+
+  audioCapturer.stop((err: BusinessError) => {
+    if (err) {
+      console.error(`Recording stop failed: ${err.code}`);
+    } else {
+      try {
         if (file) {
           fs.closeSync(file);
-          file = undefined;
+          file = null;
         }
-        console.info('Capturer stop success.');
+        console.info('Recording stopped successfully');
+      } catch (closeErr) {
+        console.error(`File close failed: ${(closeErr as Error).message}`);
       }
-    });
-  }
-}
-
-function release() {
-  if (audioCapturer !== undefined) {
-    if (audioCapturer.state.valueOf() === audio.AudioState.STATE_RELEASED ||
-      audioCapturer.state.valueOf() === audio.AudioState.STATE_NEW) {
-      console.info('Capturer already released');
-      return;
     }
-
-    audioCapturer.release((err: BusinessError) => {
-      if (err) {
-        console.error('Capturer release failed.');
-      } else {
-        console.info('Capturer release success.');
-      }
-    });
-  }
+  });
 }
 
-function startTimer() {
-  timer = setInterval(() => {
-    total_sec++;
-    min = Math.floor(total_sec / 60);
-    sec = total_sec % 60;
-    recordingTime = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-  }, 1000);
-}
-
-function stopTimer() {
-  clearInterval(timer);
-  total_sec = 0;
-  min = 0;
-  sec = 0;
-  recordingTime = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-}
-
-init();
+// Initialize the audio capturer
+initAudioCapturer();
 
 @Component
-export default struct Recording {
-  @State time: string = recordingTime;
-  @State recording: boolean = isRecording;
+export default struct RecordingPage {
+  @State private totalSeconds: number = 0;
+  @State private isRecording: boolean = false;
+  private timerId: number | null = null;
+
+  // Format time as MM:SS
+  private get formattedTime(): string {
+    const minutes: number = Math.floor(this.totalSeconds / 60);
+    const seconds: number = this.totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // Start timer with type-safe interval
+  private startTimer(): void {
+    this.timerId = setInterval(() => {
+      this.totalSeconds += 1;
+    }, 1000);
+  }
+
+
+  // Stop timer with null check
+  private stopTimer(): void {
+    if (this.timerId !== null) {
+      clearInterval(this.timerId);
+      this.timerId = null;
+    }
+  }
+
+  // Handle record button click
+  private handleRecordClick(): void {
+    if (this.isRecording) {
+      stopRecording();
+      this.stopTimer();
+    } else {
+      startRecording();
+      this.startTimer();
+    }
+    this.isRecording = !this.isRecording;
+  }
 
   build() {
-    Column() {
-      Text(this.time)
+    Column({ space: 20 }) {
+      Text(this.formattedTime)
         .fontSize(48)
-      Button(this.recording ? "停止录制" : "开始录制")
-        .onClick(() => {
-          this.onClickHandler();
-        })
+        .fontColor(Color.Black)
+        .margin({ bottom: 30 })
+
+      Button(this.isRecording ? "停止录制" : "开始录制")
+        .onClick(() => this.handleRecordClick())
+        .width(200)
+        .height(50)
+        .fontSize(20)
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
+    .backgroundColor(Color.White)
   }
 
-  onClickHandler() {
-    if (!this.recording) {
-      start();
-      startTimer();
-    } else {
-      stop();
-      stopTimer();
+  aboutToDisappear(): void {
+    this.stopTimer();
+    if (this.isRecording) {
+      stopRecording();
     }
-    this.recording = !this.recording;
-    this.time = recordingTime;
   }
 }
