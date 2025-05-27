@@ -1,6 +1,8 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { abilityAccessCtrl, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
+
 let min=0
 let sec=0
 let sampling_rate:number;
@@ -123,6 +125,8 @@ function release() {
 function startTimer(){
   timer=setInterval(()=>{
     total_sec++
+    min=total_sec/60
+    sec=total_sec%60
   },1000)
 }
 function stopTimer(){
@@ -141,7 +145,9 @@ export default struct Recording {
     }
   }
   onClickHandler(){
+    let context=getContext(this) as Context
     if(!isRecording){
+
       start()
       startTimer()
     }
