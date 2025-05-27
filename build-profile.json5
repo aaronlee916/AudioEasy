@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\lichenyun\\.ohos\\config\\default_AudioEasy_N2jJMxe9gXy4y5cujOD_9iP_9F5-iiVGfepnlhaOgKE=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B08D9617C6930586A31ABFFCEC1C5E915F8CCDC01A83C13E6F3A9BD55DA76046116F7DC7DC220AA",
+          "profile": "C:\\Users\\lichenyun\\.ohos\\config\\default_AudioEasy_N2jJMxe9gXy4y5cujOD_9iP_9F5-iiVGfepnlhaOgKE=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\lichenyun\\.ohos\\config\\default_AudioEasy_N2jJMxe9gXy4y5cujOD_9iP_9F5-iiVGfepnlhaOgKE=.p12",
+          "storePassword": "0000001B5F43EF9B00F3EB933E7E60F5359D7F8FC657FADE1B7D958CEA4B5774CCBCD46DCB632D50B97951"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
