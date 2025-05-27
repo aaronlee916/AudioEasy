@@ -9,13 +9,20 @@ async function getDevices(){
 }
 getDevices()
 
+
+function setInputDevice(device:audio.AudioDeviceDescriptor){
+  AppStorage.set('audioInputDevice',device)
+}
+
 @Component
 export default struct DeviceSelection {
 
   build() {
-    RelativeContainer() {
+    Stack() {
       ForEach(audioDevices,(item:audio.AudioDeviceDescriptor)=>{
         DeviceCard({deviceName:item.displayName})
+          .onClick(()=>setInputDevice(item))
+
       })
     }
     .height('100%')
