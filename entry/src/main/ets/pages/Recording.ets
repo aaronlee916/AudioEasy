@@ -106,6 +106,40 @@ function startRecording(): void {
 }
 
 // Stop recording with proper cleanup
+// 写入 WAV 文件头
+function writeWavHeader(filePath: string, bufferSize: number, audioStreamInfo: audio.AudioStreamInfo) {
+  try {
+    const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE);
+    const headerBuffer = new ArrayBuffer(44);
+    const dataView = new DataView(headerBuffer);
+
+    // RIFF 块
+    dataView.setUint32(0, 0x52494646, false); // 'RIFF'
+    dataView.setUint32(4, bufferSize + 36, true); // 文件总长度减去 8 字节
+    dataView.setUint32(8, 0x57415645, false); // 'WAVE'
+
+    // fmt 子块
+    dataView.setUint32(12, 0x666d7420, false); // 'fmt '
+    dataView.setUint32(16, 16, true); // 子块长度
+    dataView.setUint16(20, 1, true); // 音频格式（PCM）
+    dataView.setUint16(22, audioStreamInfo.channels, true); // 声道数
+    dataView.setUint32(24, audioStreamInfo.samplingRate, true); // 采样率
+    dataView.setUint32(28, audioStreamInfo.samplingRate * audioStreamInfo.channels * 2, true); // 字节率
+    dataView.setUint16(32, audioStreamInfo.channels * 2, true); // 块对齐
+    dataView.setUint16(34, 16, true); // 采样位数
+
+    // data 子块
+    dataView.setUint32(36, 0x64617461, false); // 'data'
+    dataView.setUint32(40, bufferSize, true); // 数据长度
+
+    fs.writeSync(file.fd, headerBuffer, { offset: 0, length: 44 });
+    fs.closeSync(file);
+  } catch (err) {
+    console.error(`Write WAV header failed: ${(err as Error).message}`);
+  }
+}
+
+// 修改 stopRecording 函数
 function stopRecording(): void {
   if (!audioCapturer) {
     console.error('AudioCapturer not initialized');
@@ -131,6 +165,10 @@ function stopRecording(): void {
           fs.closeSync(file);
           file = null;
         }
+        // 写入 WAV 文件头
+        if (filePath) {
+          writeWavHeader(filePath, bufferSize, audioStreamInfo);
+        }
         console.info('Recording stopped successfully');
       } catch (closeErr) {
         console.error(`File close failed: ${(closeErr as Error).message}`);
@@ -139,7 +177,7 @@ function stopRecording(): void {
   });
 }
 function chooseFilePath(){
-  audioSaveOptions.newFileNames = ['AudioViewPicker01.mp3'];
+  audioSaveOptions.newFileNames = ['音频01.mp3'];
   audioViewPicker.save(audioSaveOptions).then((audioSelectResult: Array<string>) => {
     filePath = audioSelectResult[0];
     console.info('audioViewPicker.save to file succeed and uri is:' + uri);
