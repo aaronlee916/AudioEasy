@@ -1,233 +1,228 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import { Context } from '@kit.AbilityKit';
 
 const TAG: string = 'AudioCapturerDemo';
 
-// Audio configuration types
 interface WriteOptions {
   offset: number;
   length: number;
 }
 
-// Audio capturer state
-let bufferSize: number = 0;
-let audioCapturer: audio.AudioCapturer | null = null;
-const audioStreamInfo: audio.AudioStreamInfo = {
-  samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_44100,
-  channels: audio.AudioChannel.CHANNEL_2,
-  sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
-  encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
-};
-
-const audioCapturerInfo: audio.AudioCapturerInfo = {
-  source: audio.SourceType.SOURCE_TYPE_MIC,
-  capturerFlags: 0
-};
-
-const audioCapturerOptions: audio.AudioCapturerOptions = {
-  streamInfo: audioStreamInfo,
-  capturerInfo: audioCapturerInfo
-};
-
-// File handling
-const context: Context = getContext() as Context;
-const audioSaveOptions = new picker.AudioSaveOptions();
-const path: string = context.cacheDir;
-let filePath:string;
-let file: fs.File | null = null;
-let uri: string = '';
-// 请确保 getContext(this) 返回结果为 UIAbilityContext
-const audioViewPicker = new picker.AudioViewPicker(context);
-
-
-// Initialize audio capturer with proper typing
-function initAudioCapturer(): void {
-  audio.createAudioCapturer(audioCapturerOptions, (err: BusinessError, capturer: audio.AudioCapturer) => {
-    if (err) {
-      console.error(`AudioCapturer creation failed: ${err.code}, ${err.message}`);
-      return;
-    }
-    console.info(`${TAG}: AudioCapturer created successfully`);
-    audioCapturer = capturer;
-
-    if (audioCapturer) {
-      audioCapturer.on('readData', (buffer: ArrayBuffer) => {
-        if (!file) return;
-
-        const options: WriteOptions = {
-          offset: bufferSize,
-          length: buffer.byteLength
-        };
-
-        try {
-          fs.writeSync(file.fd, buffer, options);
-          bufferSize += buffer.byteLength;
-        } catch (writeErr) {
-          console.error(`Write failed: ${(writeErr as Error).message}`);
-        }
-      });
-    }
-  });
-}
-
-// Start recording with state checks
-function startRecording(): void {
-  if (!audioCapturer) {
-    console.error('AudioCapturer not initialized');
-    return;
-  }
-
-  const validStates: audio.AudioState[] = [
-    audio.AudioState.STATE_PREPARED,
-    audio.AudioState.STATE_PAUSED,
-    audio.AudioState.STATE_STOPPED
-  ];
-
-  if (!validStates.includes(audioCapturer.state.valueOf())) {
-    console.error(`${TAG}: Cannot start in current state`);
-    return;
-  }
-
-  try {
-    file = fs.openSync(filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-    bufferSize = 0;
-
-    audioCapturer.start((err: BusinessError) => {
-      if (err) {
-        console.error(`Recording start failed: ${err.code}`);
-      } else {
-        console.info('Recording started successfully');
-      }
-    });
-  } catch (openErr) {
-    console.error(`File open failed: ${(openErr as Error).message}`);
-  }
-}
-
-// Stop recording with proper cleanup
-// 写入 WAV 文件头
-function writeWavHeader(filePath: string, bufferSize: number, audioStreamInfo: audio.AudioStreamInfo) {
-  try {
-    const file = fs.openSync(filePath, fs.OpenMode.READ_WRITE);
-    const headerBuffer = new ArrayBuffer(44);
-    const dataView = new DataView(headerBuffer);
-
-    // RIFF 块
-    dataView.setUint32(0, 0x52494646, false); // 'RIFF'
-    dataView.setUint32(4, bufferSize + 36, true); // 文件总长度减去 8 字节
-    dataView.setUint32(8, 0x57415645, false); // 'WAVE'
-
-    // fmt 子块
-    dataView.setUint32(12, 0x666d7420, false); // 'fmt '
-    dataView.setUint32(16, 16, true); // 子块长度
-    dataView.setUint16(20, 1, true); // 音频格式（PCM）
-    dataView.setUint16(22, audioStreamInfo.channels, true); // 声道数
-    dataView.setUint32(24, audioStreamInfo.samplingRate, true); // 采样率
-    dataView.setUint32(28, audioStreamInfo.samplingRate * audioStreamInfo.channels * 2, true); // 字节率
-    dataView.setUint16(32, audioStreamInfo.channels * 2, true); // 块对齐
-    dataView.setUint16(34, 16, true); // 采样位数
-
-    // data 子块
-    dataView.setUint32(36, 0x64617461, false); // 'data'
-    dataView.setUint32(40, bufferSize, true); // 数据长度
-
-    fs.writeSync(file.fd, headerBuffer, { offset: 0, length: 44 });
-    fs.closeSync(file);
-  } catch (err) {
-    console.error(`Write WAV header failed: ${(err as Error).message}`);
-  }
-}
-
-// 修改 stopRecording 函数
-function stopRecording(): void {
-  if (!audioCapturer) {
-    console.error('AudioCapturer not initialized');
-    return;
-  }
-
-  const validStopStates: audio.AudioState[] = [
-    audio.AudioState.STATE_RUNNING,
-    audio.AudioState.STATE_PAUSED
-  ];
-
-  if (!validStopStates.includes(audioCapturer.state.valueOf())) {
-    console.info('Not in a stoppable state');
-    return;
-  }
-
-  audioCapturer.stop((err: BusinessError) => {
-    if (err) {
-      console.error(`Recording stop failed: ${err.code}`);
-    } else {
-      try {
-        if (file) {
-          fs.closeSync(file);
-          file = null;
-        }
-        // 写入 WAV 文件头
-        if (filePath) {
-          writeWavHeader(filePath, bufferSize, audioStreamInfo);
-        }
-        console.info('Recording stopped successfully');
-      } catch (closeErr) {
-        console.error(`File close failed: ${(closeErr as Error).message}`);
-      }
-    }
-  });
-}
-function chooseFilePath(){
-  audioSaveOptions.newFileNames = ['音频01.mp3'];
-  audioViewPicker.save(audioSaveOptions).then((audioSelectResult: Array<string>) => {
-    filePath = audioSelectResult[0];
-    console.info('audioViewPicker.save to file succeed and uri is:' + uri);
-  }).catch((err: BusinessError) => {
-    console.error(`Invoke audioViewPicker.save failed, code is ${err.code}, message is ${err.message}`);
-  })
-}
-// Initialize the audio capturer
-initAudioCapturer();
-
 @Component
 export default struct RecordingPage {
+  // Audio capturer state
+  private audioCapturer: audio.AudioCapturer | null = null;
+  private bufferSize: number = 0;
+  private file: fs.File | null = null;
+  private filePath: string = '';
+
+  // UI state
   @State private totalSeconds: number = 0;
   @State private isRecording: boolean = false;
+  @State private isInitialized: boolean = false;
+  @State private errorMessage: string = '';
   private timerId: number | null = null;
 
-  // Format time as MM:SS
-  private get formattedTime(): string {
-    const minutes: number = Math.floor(this.totalSeconds / 60);
-    const seconds: number = this.totalSeconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  // Audio configuration
+  private readonly audioStreamInfo: audio.AudioStreamInfo = {
+    samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_44100,
+    channels: audio.AudioChannel.CHANNEL_2,
+    sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
+    encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
+  };
+
+  private readonly audioCapturerOptions: audio.AudioCapturerOptions = {
+    streamInfo: this.audioStreamInfo,
+    capturerInfo: {
+      source: audio.SourceType.SOURCE_TYPE_MIC,
+      capturerFlags: 0
+    }
+  };
+
+  aboutToAppear(): void {
+    this.initializeAudioCapturer();
   }
 
-  // Start timer with type-safe interval
+  private initializeAudioCapturer(): void {
+    audio.createAudioCapturer(this.audioCapturerOptions, (err: BusinessError, capturer: audio.AudioCapturer) => {
+      if (err) {
+        this.errorMessage = `Initialization failed: ${err.code}`;
+        console.error(TAG, this.errorMessage);
+        return;
+      }
+
+      this.audioCapturer = capturer;
+      this.isInitialized = true;
+      console.info(TAG, 'AudioCapturer initialized successfully');
+
+      // Set up data callback
+      this.audioCapturer.on('readData', (buffer: ArrayBuffer) => {
+        this.handleAudioData(buffer);
+      });
+    });
+  }
+
+  private handleAudioData(buffer: ArrayBuffer): void {
+    if (!this.file) return;
+
+    try {
+      const options: WriteOptions = {
+        offset: this.bufferSize,
+        length: buffer.byteLength
+      };
+      fs.writeSync(this.file.fd, buffer, options);
+      this.bufferSize += buffer.byteLength;
+    } catch (writeErr) {
+      this.errorMessage = `Write failed: ${(writeErr as Error).message}`;
+      console.error(TAG, this.errorMessage);
+    }
+  }
+
+  private async startRecording(): Promise<void> {
+    if (!this.audioCapturer || !this.isInitialized) {
+      this.errorMessage = 'Audio capturer not ready';
+      return;
+    }
+
+    try {
+      // Ensure we have a valid file path
+      await this.chooseFilePath();
+
+      this.file = fs.openSync(this.filePath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
+      this.bufferSize = 0;
+
+      this.audioCapturer.start((err: BusinessError) => {
+        if (err) {
+          this.errorMessage = `Start failed: ${err.code}`;
+          console.error(TAG, this.errorMessage);
+          return;
+        }
+        this.isRecording = true;
+        this.startTimer();
+        console.info(TAG, 'Recording started');
+      });
+    } catch (err) {
+      this.errorMessage = `Recording setup failed: ${(err as Error).message}`;
+      console.error(TAG, this.errorMessage);
+    }
+  }
+
+  private stopRecording(): void {
+    if (!this.audioCapturer || !this.isRecording) {
+      return;
+    }
+
+    console.info(TAG, `Current state: ${this.audioCapturer.state}`);
+
+    this.audioCapturer.stop((err: BusinessError) => {
+      if (err) {
+        this.errorMessage = `Stop failed: ${err.code}`;
+        console.error(TAG, this.errorMessage);
+        return;
+      }
+
+      try {
+        this.cleanupAfterRecording();
+        console.info(TAG, 'Recording stopped successfully');
+      } catch (cleanupErr) {
+        this.errorMessage = `Cleanup failed: ${(cleanupErr as Error).message}`;
+        console.error(TAG, this.errorMessage);
+      } finally {
+        this.isRecording = false;
+        this.stopTimer();
+      }
+    });
+  }
+
+  private cleanupAfterRecording(): void {
+    if (this.file) {
+      fs.closeSync(this.file);
+      this.file = null;
+    }
+    if (this.filePath) {
+      this.writeWavHeader();
+    }
+  }
+
+  private writeWavHeader(): void {
+    try {
+      const file = fs.openSync(this.filePath, fs.OpenMode.READ_WRITE);
+      const headerBuffer = new ArrayBuffer(44);
+      const dataView = new DataView(headerBuffer);
+
+      // RIFF header
+      dataView.setUint32(0, 0x52494646, false); // "RIFF"
+      dataView.setUint32(4, this.bufferSize + 36, true); // File size
+      dataView.setUint32(8, 0x57415645, false); // "WAVE"
+
+      // Format chunk
+      dataView.setUint32(12, 0x666d7420, false); // "fmt "
+      dataView.setUint32(16, 16, true); // Chunk size
+      dataView.setUint16(20, 1, true); // PCM format
+      dataView.setUint16(22, this.audioStreamInfo.channels, true);
+      dataView.setUint32(24, this.audioStreamInfo.samplingRate, true);
+      dataView.setUint32(28, this.audioStreamInfo.samplingRate * this.audioStreamInfo.channels * 2, true);
+      dataView.setUint16(32, this.audioStreamInfo.channels * 2, true);
+      dataView.setUint16(34, 16, true);
+
+      // Data chunk
+      dataView.setUint32(36, 0x64617461, false); // "data"
+      dataView.setUint32(40, this.bufferSize, true);
+
+      fs.writeSync(file.fd, headerBuffer, { offset: 0, length: 44 });
+      fs.closeSync(file);
+    } catch (err) {
+      throw new Error(`WAV header creation failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async chooseFilePath(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const audioSaveOptions = new picker.AudioSaveOptions();
+      audioSaveOptions.newFileNames = ['recording.wav'];
+
+      new picker.AudioViewPicker().save(audioSaveOptions)
+        .then((uris: Array<string>) => {
+          this.filePath = uris[0];
+          console.info(TAG, `File path selected: ${this.filePath}`);
+          resolve();
+        })
+        .catch((err: BusinessError) => {
+          this.errorMessage = `File selection failed: ${err.code}`;
+          console.error(TAG, this.errorMessage);
+          reject(err);
+        });
+    });
+  }
+
   private startTimer(): void {
+    this.totalSeconds = 0;
     this.timerId = setInterval(() => {
       this.totalSeconds += 1;
     }, 1000);
   }
 
-
-  // Stop timer with null check
   private stopTimer(): void {
-    if (this.timerId !== null) {
+    if (this.timerId) {
       clearInterval(this.timerId);
       this.timerId = null;
     }
   }
 
-  // Handle record button click
+  private get formattedTime(): string {
+    const minutes = Math.floor(this.totalSeconds / 60).toString().padStart(2, '0');
+    const seconds = (this.totalSeconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
   private handleRecordClick(): void {
     if (this.isRecording) {
-      stopRecording();
-      this.stopTimer();
+      this.stopRecording();
     } else {
-      chooseFilePath()
-      startRecording();
-      this.startTimer();
+      this.startRecording();
     }
-    this.isRecording = !this.isRecording;
   }
 
   build() {
@@ -235,25 +230,43 @@ export default struct RecordingPage {
       Text(this.formattedTime)
         .fontSize(48)
         .fontColor(Color.Black)
-        .margin({ bottom: 30 })
 
-      Button(this.isRecording ? "停止录制" : "开始录制")
+      Button(this.isRecording ? 'Stop Recording' : 'Start Recording')
         .onClick(() => this.handleRecordClick())
         .width(200)
         .height(50)
         .fontSize(20)
+        .enabled(this.isInitialized)
+
+      if (this.errorMessage) {
+        Text(this.errorMessage)
+          .fontSize(14)
+          .fontColor(Color.Red)
+          .margin({ top: 10 })
+      }
+
+      if (!this.isInitialized) {
+        Text('Initializing audio system...')
+          .fontSize(14)
+          .fontColor(Color.Gray)
+      }
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
-    .backgroundColor(Color.White)
+    .padding(20)
   }
 
   aboutToDisappear(): void {
-    this.stopTimer();
     if (this.isRecording) {
-      stopRecording();
+      this.stopRecording();
+    }
+    if (this.timerId) {
+      this.stopTimer();
+    }
+    if (this.file) {
+      fs.closeSync(this.file);
     }
   }
 }
