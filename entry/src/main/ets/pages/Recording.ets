@@ -1,6 +1,6 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { fileIo as fs } from '@kit.CoreFileKit';
+import { fileIo as fs, picker } from '@kit.CoreFileKit';
 
 const TAG: string = 'AudioCapturerDemo';
 
@@ -32,9 +32,14 @@ const audioCapturerOptions: audio.AudioCapturerOptions = {
 
 // File handling
 const context: Context = getContext() as Context;
+const audioSaveOptions = new picker.AudioSaveOptions();
 const path: string = context.cacheDir;
-const filePath: string = `${path}/recording.pcm`;
+let filePath:string;
 let file: fs.File | null = null;
+let uri: string = '';
+// 请确保 getContext(this) 返回结果为 UIAbilityContext
+const audioViewPicker = new picker.AudioViewPicker(context);
+
 
 // Initialize audio capturer with proper typing
 function initAudioCapturer(): void {
@@ -133,7 +138,15 @@ function stopRecording(): void {
     }
   });
 }
-
+function chooseFilePath(){
+  audioSaveOptions.newFileNames = ['AudioViewPicker01.mp3'];
+  audioViewPicker.save(audioSaveOptions).then((audioSelectResult: Array<string>) => {
+    filePath = audioSelectResult[0];
+    console.info('audioViewPicker.save to file succeed and uri is:' + uri);
+  }).catch((err: BusinessError) => {
+    console.error(`Invoke audioViewPicker.save failed, code is ${err.code}, message is ${err.message}`);
+  })
+}
 // Initialize the audio capturer
 initAudioCapturer();
 
@@ -172,6 +185,7 @@ export default struct RecordingPage {
       stopRecording();
       this.stopTimer();
     } else {
+      chooseFilePath()
       startRecording();
       this.startTimer();
     }
