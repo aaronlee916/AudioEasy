@@ -1,7 +1,6 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
-import { common } from '@kit.AbilityKit';
 
 const TAG: string = 'AudioRecorder';
 const MAX_FILE_SIZE = 0xFFFFFFFF - 44; // Maximum WAV file size (4GB - header)
@@ -19,7 +18,7 @@ export default struct AudioRecorderComponent {
   @State private isRecording: boolean = false;
   @State private isInitialized: boolean = false;
   @State private errorMessage: string = '';
-  private timerId: number | null = null;
+  @State private timerId: number | null = null;
 
   // Audio configuration
   private readonly audioConfig: audio.AudioCapturerOptions = {
@@ -231,7 +230,7 @@ export default struct AudioRecorderComponent {
   }
 
   private stopTimer(): void {
-    if (this.timerId) {
+    if (typeof(this.timerId)==='number') {
       clearInterval(this.timerId);
       this.timerId = null;
     }
