@@ -163,6 +163,7 @@ export default struct AudioRecorderComponent {
     try {
       this.isRecording = false;
       this.stopTimer();
+      this.finalizeRecording()
 
       if (this.fileHandle) {
         fs.closeSync(this.fileHandle);
