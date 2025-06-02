@@ -48,7 +48,7 @@ AudioEasy/
 ## Installation and Running
 ### Clone the Repository
 ```bash
-git clone https://github.com/yourusername/AudioEasy.git
+git clone https://github.com/aaronlee916/AudioEasy.git
 cd AudioEasy
 ```
 
