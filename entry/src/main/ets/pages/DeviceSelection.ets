@@ -20,14 +20,15 @@ function setInputDevice(device:audio.AudioDeviceDescriptor){
 export default struct DeviceSelection {
 
   build() {
-    Stack() {
-
+    Column() {
+      Text("输入设备")
       ForEach(inputAudioDevices,(item:audio.AudioDeviceDescriptor)=>{
         DeviceCard({deviceName:item.displayName})
           .onClick(()=>setInputDevice(item))
 
       })
-
+      Line({width:'100%',height:1})
+      Text("输出设备")
       ForEach(outputAudioDevices,
         (item: audio.AudioDeviceDescriptor) => {
           DeviceCard({ deviceName: item.displayName })
