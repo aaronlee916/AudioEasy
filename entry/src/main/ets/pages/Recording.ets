@@ -111,6 +111,10 @@ export default struct AudioRecorderComponent {
       return;
     }
 
+    // Prevent re-entry
+    this.isRecording = false;
+    this.stopTimer();
+
     try {
       await new Promise<void>((resolve, reject) => {
         this.audioCapturer?.stop((err: BusinessError) => {
@@ -118,6 +122,17 @@ export default struct AudioRecorderComponent {
             if (err.code === 6800301) {
               this.errorMessage = 'Recording stop failed - system resource conflict';
               console.error(TAG, this.errorMessage);
+
+              // Force release and reinit capturer
+              this.audioCapturer?.release();
+              this.audioCapturer = null;
+              this.isInitialized = false;
+
+              // Reinitialize the audio capturer for future use
+              this.initializeAudioCapturer();
+
+              reject(err); // Still reject to trigger cleanup
+              return;
             }
             reject(err);
           } else {
@@ -126,17 +141,9 @@ export default struct AudioRecorderComponent {
         });
       });
 
-      // Ensure these run after stop completes
-      this.isRecording = false;
-      this.stopTimer();
       await this.finalizeRecording();
-
     } catch (err) {
-      this.isRecording = false;
-      this.stopTimer();
-      if (!(err as BusinessError).code || (err as BusinessError).code !== 6800301) {
-        this.handleError('Stop failed', err);
-      }
+      this.handleError('Stop failed', err);
       this.forceCleanup();
     }
   }
@@ -152,7 +159,7 @@ export default struct AudioRecorderComponent {
       fs.fsyncSync(this.fileHandle.fd);
       fs.closeSync(this.fileHandle);
       this.fileHandle = null;
-
+      this.getUIContext().getPromptAction().showToast({message:`录音文件已存至${this.filePath}`})
       console.info(TAG, `Recording saved to ${this.filePath}`);
     } catch (err) {
       this.handleError('Finalization failed', err);
@@ -277,7 +284,7 @@ export default struct AudioRecorderComponent {
         .fontSize(48)
         .fontColor(Color.Black)
 
-      Button(this.isRecording ? 'Stop Recording' : 'Start Recording')
+      Button(this.isRecording ? '停止录音' : '开始录音')
         .onClick(() => this.toggleRecording())
         .width(200)
         .height(50)
